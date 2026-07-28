@@ -8,6 +8,9 @@ struct ProblemGeneratorView: View {
     @State private var difficulty: Difficulty = .medium
     @State private var topics: String = ""
     @State private var isGenerating: Bool = false
+    @State private var errorMessage: String?
+
+    private let api = GrinLeetAPI.default
 
     private var canGenerate: Bool {
         !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
@@ -58,12 +61,26 @@ struct ProblemGeneratorView: View {
                 }
             }
 
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+            }
+
             Divider()
 
             HStack {
-                Label("OpenRouter · not wired to backend yet", systemImage: "network")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Label {
+                    Text("via ") + Text(api.baseURL.absoluteString).font(.caption.monospaced())
+                } icon: {
+                    Image(systemName: "network")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -103,6 +120,7 @@ struct ProblemGeneratorView: View {
 
     private func generate() {
         isGenerating = true
+        errorMessage = nil
         let capturedPrompt = promptText
         let capturedDifficulty = difficulty
         let capturedTopics = topics
@@ -111,30 +129,19 @@ struct ProblemGeneratorView: View {
             .filter { !$0.isEmpty }
 
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(800))
-            let mocked = Problem(
-                id: UUID(),
-                title: "Generated: \(capturedPrompt.prefix(48))",
-                difficulty: capturedDifficulty,
-                tags: capturedTopics.isEmpty ? ["Generated"] : capturedTopics,
-                statement: """
-                _This is a mock problem generated from your prompt:_
-
-                > \(capturedPrompt)
-
-                Wire this sheet to your FastAPI + OpenRouter endpoint to produce a real problem \
-                statement, examples, and constraints.
-                """,
-                examples: [
-                    .init(input: "example input", output: "example output", explanation: "placeholder")
-                ],
-                constraints: [],
-                createdAt: Date()
-            )
-            state.problems.insert(mocked, at: 0)
-            state.selectedProblemID = mocked.id
-            isGenerating = false
-            dismiss()
+            defer { isGenerating = false }
+            do {
+                let problem = try await api.generateProblem(
+                    prompt: capturedPrompt,
+                    difficulty: capturedDifficulty,
+                    topics: capturedTopics
+                )
+                state.problems.insert(problem, at: 0)
+                state.selectedProblemID = problem.id
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
