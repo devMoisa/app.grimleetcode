@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' blob: data:;" />
+    <title>Monaco</title>
+    <style>
+        html, body, #container {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+        body { background: #282a36; color: #f8f8f2; font-family: -apple-system, sans-serif; }
+        #status {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; color: #6272a4; pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        #status.hidden { opacity: 0; }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="status">Loading editor…</div>
+    <script>
+        function bridgeLog() {
+            var args = Array.prototype.slice.call(arguments);
+            try {
+                var payload = args.map(function (a) {
+                    if (typeof a === "string") return a;
+                    try { return JSON.stringify(a); } catch (e) { return String(a); }
+                }).join(" ");
+                window.webkit.messageHandlers.log.postMessage(payload);
+            } catch (e) {}
+        }
+        var _origLog = console.log, _origErr = console.error, _origWarn = console.warn;
+        console.log = function () { bridgeLog.apply(null, ["LOG"].concat([].slice.call(arguments))); _origLog.apply(console, arguments); };
+        console.warn = function () { bridgeLog.apply(null, ["WARN"].concat([].slice.call(arguments))); _origWarn.apply(console, arguments); };
+        console.error = function () { bridgeLog.apply(null, ["ERR"].concat([].slice.call(arguments))); _origErr.apply(console, arguments); };
+        window.addEventListener("error", function (e) {
+            bridgeLog("UNCAUGHT", e.message, "@", e.filename + ":" + e.lineno);
+            document.getElementById("status").textContent = "JS error: " + e.message;
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+            bridgeLog("UNHANDLED", String(e.reason));
+        });
+
+        var editor = null;
+        var suppressChange = false;
+
+        self.MonacoEnvironment = {
+            getWorkerUrl: function (workerId, label) {
+                var proxyScript =
+                    "self.MonacoEnvironment = { baseUrl: '" + document.baseURI + "' };" +
+                    "importScripts('" + document.baseURI + "vs/editor/editor.worker.js');";
+                var blob = new Blob([proxyScript], { type: "application/javascript" });
+                return URL.createObjectURL(blob);
+            }
+        };
+
+        function hideStatus() {
+            var s = document.getElementById("status");
+            if (s) s.classList.add("hidden");
+        }
+
+        function defineDracula() {
+            monaco.editor.defineTheme("dracula", {
+                base: "vs-dark",
+                inherit: true,
+                rules: [
+                    { token: "",                  foreground: "f8f8f2", background: "282a36" },
+                    { token: "comment",           foreground: "6272a4", fontStyle: "italic" },
+                    { token: "string",            foreground: "f1fa8c" },
+                    { token: "string.escape",     foreground: "ff79c6" },
+                    { token: "number",            foreground: "bd93f9" },
+                    { token: "constant",          foreground: "bd93f9" },
+                    { token: "constant.numeric",  foreground: "bd93f9" },
+                    { token: "constant.language", foreground: "bd93f9" },
+                    { token: "keyword",           foreground: "ff79c6" },
+                    { token: "keyword.control",   foreground: "ff79c6" },
+                    { token: "keyword.operator",  foreground: "ff79c6" },
+                    { token: "storage",           foreground: "ff79c6" },
+                    { token: "storage.type",      foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "operator",          foreground: "ff79c6" },
+                    { token: "delimiter",         foreground: "f8f8f2" },
+                    { token: "identifier",        foreground: "f8f8f2" },
+                    { token: "variable",          foreground: "f8f8f2" },
+                    { token: "variable.parameter", foreground: "ffb86c", fontStyle: "italic" },
+                    { token: "function",          foreground: "50fa7b" },
+                    { token: "entity.name.function", foreground: "50fa7b" },
+                    { token: "type",              foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "type.identifier",   foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "class",             foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "interface",         foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "enum",              foreground: "8be9fd", fontStyle: "italic" },
+                    { token: "tag",               foreground: "ff79c6" },
+                    { token: "attribute.name",    foreground: "50fa7b" },
+                    { token: "attribute.value",   foreground: "f1fa8c" },
+                    { token: "regexp",            foreground: "ff5555" },
+                    { token: "invalid",           foreground: "ff5555" }
+                ],
+                colors: {
+                    "editor.background":                    "#282a36",
+                    "editor.foreground":                    "#f8f8f2",
+                    "editor.lineHighlightBackground":       "#44475a",
+                    "editor.lineHighlightBorder":           "#00000000",
+                    "editor.selectionBackground":           "#44475a",
+                    "editor.selectionHighlightBackground":  "#424450",
+                    "editor.wordHighlightBackground":       "#8be9fd50",
+                    "editor.wordHighlightStrongBackground": "#50fa7b50",
+                    "editor.findMatchBackground":           "#ffb86c80",
+                    "editor.findMatchHighlightBackground":  "#ffb86c40",
+                    "editorCursor.foreground":              "#f8f8f0",
+                    "editorWhitespace.foreground":          "#3B3A32",
+                    "editorIndentGuide.background1":        "#44475a",
+                    "editorIndentGuide.activeBackground1":  "#bd93f9",
+                    "editorLineNumber.foreground":          "#6272a4",
+                    "editorLineNumber.activeForeground":    "#f8f8f2",
+                    "editorGutter.background":              "#282a36",
+                    "editorBracketMatch.background":        "#44475a",
+                    "editorBracketMatch.border":            "#f8f8f2",
+                    "editorBracketHighlight.foreground1":   "#ff79c6",
+                    "editorBracketHighlight.foreground2":   "#50fa7b",
+                    "editorBracketHighlight.foreground3":   "#8be9fd",
+                    "editorBracketHighlight.foreground4":   "#bd93f9",
+                    "editorBracketHighlight.foreground5":   "#f1fa8c",
+                    "editorBracketHighlight.foreground6":   "#ffb86c",
+                    "editorWidget.background":              "#21222c",
+                    "editorWidget.border":                  "#191a21",
+                    "editorSuggestWidget.background":       "#21222c",
+                    "editorSuggestWidget.border":           "#191a21",
+                    "editorSuggestWidget.selectedBackground": "#44475a",
+                    "editorHoverWidget.background":         "#21222c",
+                    "editorHoverWidget.border":             "#191a21",
+                    "scrollbarSlider.background":           "#44475a80",
+                    "scrollbarSlider.hoverBackground":      "#6272a480",
+                    "scrollbarSlider.activeBackground":     "#bd93f980"
+                }
+            });
+        }
+    </script>
+    <script src="vs/loader.js" onerror="document.getElementById('status').textContent='Failed to load loader.js';bridgeLog('ERR','loader.js failed to load');"></script>
+    <script>
+        if (typeof require === "undefined") {
+            bridgeLog("ERR", "require is undefined after loader.js — script did not execute");
+            document.getElementById("status").textContent = "loader.js did not define require";
+        } else {
+            bridgeLog("LOG", "loader.js loaded, configuring require");
+            require.config({ paths: { vs: "vs" } });
+            require(["vs/editor/editor.main"], function () {
+                bridgeLog("LOG", "editor.main loaded");
+                try {
+                    defineDracula();
+                    editor = monaco.editor.create(document.getElementById("container"), {
+                        value: "",
+                        language: "python",
+                        theme: "dracula",
+                        automaticLayout: true,
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        fontFamily: "SF Mono, Menlo, Monaco, monospace",
+                        fontLigatures: true,
+                        scrollBeyondLastLine: false,
+                        smoothScrolling: true,
+                        cursorSmoothCaretAnimation: "on",
+                        renderLineHighlight: "gutter",
+                        roundedSelection: false,
+                        padding: { top: 12, bottom: 12 },
+                        tabSize: 4,
+                        insertSpaces: true
+                    });
+                    editor.onDidChangeModelContent(function () {
+                        if (suppressChange) return;
+                        try {
+                            window.webkit.messageHandlers.textChanged.postMessage(editor.getValue());
+                        } catch (e) {}
+                    });
+                    hideStatus();
+                    try { window.webkit.messageHandlers.ready.postMessage("ready"); } catch (e) {}
+                    bridgeLog("LOG", "editor created and ready");
+                } catch (err) {
+                    bridgeLog("ERR", "editor.create failed:", err && err.message);
+                    document.getElementById("status").textContent = "Editor init failed: " + (err && err.message);
+                }
+            }, function (err) {
+                bridgeLog("ERR", "require(editor.main) failed:", err && err.message);
+                document.getElementById("status").textContent = "Failed to load Monaco: " + (err && err.message);
+            });
+        }
+
+        window.setText = function (text) {
+            if (!editor) return;
+            if (editor.getValue() === text) return;
+            suppressChange = true;
+            var pos = editor.getPosition();
+            editor.setValue(text);
+            if (pos) editor.setPosition(pos);
+            suppressChange = false;
+        };
+        window.setLanguage = function (lang) {
+            if (!editor || typeof monaco === "undefined") return;
+            var model = editor.getModel();
+            if (model) monaco.editor.setModelLanguage(model, lang);
+        };
+        window.setTheme = function (theme) {
+            if (typeof monaco === "undefined") return;
+            monaco.editor.setTheme(theme);
+        };
+        window.setMinimapEnabled = function (enabled) {
+            if (!editor) return;
+            editor.updateOptions({ minimap: { enabled: !!enabled } });
+        };
+    </script>
+</body>
+</html>

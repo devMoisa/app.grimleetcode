@@ -2,13 +2,19 @@ import SwiftUI
 
 struct CodeWorkspaceView: View {
     @Bindable var state: AppState
+    @State private var isResultsCollapsed: Bool = false
+
+    private var collapsedHeight: CGFloat { 44 }
 
     var body: some View {
         VSplitView {
             editorSection
-                .frame(minHeight: 260)
+                .frame(minHeight: 200)
             resultsSection
-                .frame(minHeight: 140)
+                .frame(
+                    minHeight: isResultsCollapsed ? collapsedHeight : 140,
+                    maxHeight: isResultsCollapsed ? collapsedHeight : .infinity
+                )
         }
         .navigationTitle("Workspace")
         .frame(minWidth: 460)
@@ -20,7 +26,7 @@ struct CodeWorkspaceView: View {
         VStack(spacing: 0) {
             editorToolbar
             Divider()
-            CodeEditorPlaceholder(text: $state.currentCode, language: state.selectedLanguage)
+            MonacoEditorView(text: $state.currentCode, language: state.selectedLanguage)
         }
     }
 
@@ -81,30 +87,53 @@ struct CodeWorkspaceView: View {
 
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Label("Results", systemImage: "terminal")
-                    .font(.headline)
-                Spacer()
-                if let result = state.lastResult {
-                    StatusBadge(status: result.status)
-                }
+            resultsHeader
+            if !isResultsCollapsed {
+                Divider()
+                resultsBody
             }
-            .padding(10)
-            Divider()
+        }
+    }
+
+    private var resultsHeader: some View {
+        HStack(spacing: 8) {
+            Label("Results", systemImage: "terminal")
+                .font(.headline)
+            Spacer()
+            if let result = state.lastResult, !isResultsCollapsed {
+                StatusBadge(status: result.status)
+            }
+            Button {
+                withAnimation(.smooth(duration: 0.2)) {
+                    isResultsCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: isResultsCollapsed ? "chevron.up" : "chevron.down")
+                    .imageScale(.small)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(isResultsCollapsed ? "Expand results" : "Collapse results")
+        }
+        .padding(10)
+    }
+
+    @ViewBuilder
+    private var resultsBody: some View {
+        if let result = state.lastResult {
             ScrollView {
-                if let result = state.lastResult {
-                    resultDetail(result)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ContentUnavailableView(
-                        "No output yet",
-                        systemImage: "terminal",
-                        description: Text("Run or submit your code to see results here.")
-                    )
-                    .padding(.vertical, 24)
-                }
+                resultDetail(result)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+        } else {
+            ContentUnavailableView(
+                "No output yet",
+                systemImage: "terminal",
+                description: Text("Run or submit your code to see results here.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

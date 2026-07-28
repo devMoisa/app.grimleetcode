@@ -27,7 +27,7 @@ struct ProblemListView: View {
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $searchText, prompt: "Search problems or tags")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search problems or tags")
         .navigationTitle("Problems")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
