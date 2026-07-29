@@ -45,7 +45,14 @@ final class AppState {
         self.tracks = tracks
         self.selectedTrackID = tracks.first?.id
         self.selectedLessonID = tracks.first?.allLessons.first?.id
-        self.completedExercises = [:]
+        self.completedExercises = PersistenceStore.loadCompletedExercises()
+    }
+
+    /// Wipes all roadmap progress (both in memory and on disk).
+    @MainActor
+    func resetRoadmapProgress() {
+        completedExercises = [:]
+        PersistenceStore.clearAllProgress()
     }
 
     // MARK: - Unified resolver
@@ -191,6 +198,7 @@ final class AppState {
             lastResult = result
             if result.status == .success, let lesson = lessonContainingSelectedProblem() {
                 completedExercises[lesson.id, default: []].insert(problem.id)
+                PersistenceStore.saveCompletedExercises(completedExercises)
             }
         } catch {
             lastResult = ExecutionResult(
