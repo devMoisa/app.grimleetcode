@@ -1,16 +1,20 @@
 import SwiftUI
 
 /// Renders GitHub-style Markdown as native SwiftUI views. Supports:
-/// - Paragraphs (with inline bold, italic, links, and highlighted inline `code`)
+/// - Paragraphs (inline bold, italic, links, highlighted inline `code`)
 /// - Headings (# through ######)
 /// - Fenced code blocks (```lang\n...\n```) with a Dracula-toned box
-/// - Bulleted lists (`- ` or `* `)
+/// - Bulleted lists (`- ` / `* `)
+/// - Ordered lists (`1. `)
+/// - Tables (`| a | b |\n|---|---|`)
+/// - Horizontal rules (`---`, `***`, `___`)
 ///
-/// Written from scratch instead of adding a Swift Package dependency — good enough
-/// for lesson theory and chat responses; tables and images are not (yet) supported.
+/// Written by hand — no Swift Package dependency. Not a full CommonMark parser,
+/// but covers what lesson theory and chat responses actually use.
 struct MarkdownText: View {
     let source: String
     var textColor: Color = .primary
+    var baseFont: Font = .body
 
     private var blocks: [Block] { Block.parse(source) }
 
@@ -25,31 +29,39 @@ struct MarkdownText: View {
                 case .code(let code, let lang):
                     codeBlock(code, language: lang)
                 case .bullet(let items):
-                    bulletList(items)
+                    list(items, ordered: false)
+                case .ordered(let items):
+                    list(items, ordered: true)
+                case .table(let headers, let rows):
+                    table(headers: headers, rows: rows)
+                case .rule:
+                    Divider().padding(.vertical, 4)
                 }
             }
         }
     }
 
-    // MARK: - Paragraphs
+    // MARK: - Paragraph
 
-    @ViewBuilder
     private func paragraph(_ md: String) -> some View {
-        Text(styled(md))
+        Text(styledInline(md))
+            .font(baseFont)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Parses inline Markdown and styles inline `code` runs with monospaced font +
-    /// a subtle highlight so they visually pop out.
-    private func styled(_ md: String) -> AttributedString {
+    /// Parses inline Markdown; overlays a monospaced/highlighted style on inline code.
+    /// The base font is intentionally NOT baked in so callers can pick per context.
+    private func styledInline(_ md: String) -> AttributedString {
         guard var attributed = try? AttributedString(
             markdown: md,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace
             )
         ) else {
-            return AttributedString(md)
+            var plain = AttributedString(md)
+            plain.foregroundColor = textColor
+            return plain
         }
 
         for run in attributed.runs {
@@ -59,17 +71,12 @@ struct MarkdownText: View {
                 attributed[run.range].foregroundColor = codeInlineForeground
             }
         }
-
-        // Base attributes for the whole paragraph.
         attributed.foregroundColor = textColor
-        attributed.font = .body
-
         return attributed
     }
 
-    // MARK: - Headings
+    // MARK: - Heading
 
-    @ViewBuilder
     private func heading(level: Int, text: String) -> some View {
         let font: Font = switch level {
         case 1: .title.weight(.bold)
@@ -77,22 +84,23 @@ struct MarkdownText: View {
         case 3: .title3.weight(.semibold)
         default: .headline
         }
-        Text(text)
+        return Text(styledInline(text))
             .font(font)
-            .foregroundStyle(textColor)
             .padding(.top, level <= 2 ? 6 : 2)
     }
 
-    // MARK: - Bullets
+    // MARK: - Lists
 
-    @ViewBuilder
-    private func bulletList(_ items: [String]) -> some View {
+    private func list(_ items: [String], ordered: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(items.indices, id: \.self) { i in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("•")
+                    Text(ordered ? "\(i + 1)." : "•")
+                        .font(baseFont.monospacedDigit())
                         .foregroundStyle(.secondary)
-                    Text(styled(items[i]))
+                        .frame(minWidth: 18, alignment: .trailing)
+                    Text(styledInline(items[i]))
+                        .font(baseFont)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -113,9 +121,7 @@ struct MarkdownText: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(codeChromeBackground, in: UnevenRoundedRectangle(
-                    cornerRadii: .init(topLeading: 8, topTrailing: 8), style: .continuous
-                ))
+                .background(codeChromeBackground)
             }
             Text(code)
                 .font(.system(.callout, design: .monospaced))
@@ -123,46 +129,101 @@ struct MarkdownText: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(
-                    codeBackground,
-                    in: UnevenRoundedRectangle(
-                        cornerRadii: language?.isEmpty == false
-                            ? .init(bottomLeading: 8, bottomTrailing: 8)
-                            : .init(topLeading: 8, bottomLeading: 8, bottomTrailing: 8, topTrailing: 8),
-                        style: .continuous
-                    )
-                )
+                .background(codeBackground)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.white.opacity(0.06))
         )
     }
 
-    // MARK: - Colors (Dracula-toned so code blocks feel consistent with the Monaco editor)
+    // MARK: - Table
+
+    private func table(headers: [String], rows: [[String]]) -> some View {
+        let cols = max(headers.count, rows.map(\.count).max() ?? 0)
+        return VStack(spacing: 0) {
+            // Header row
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(0..<cols, id: \.self) { c in
+                    Text(styledInline(c < headers.count ? headers[c] : ""))
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                    if c < cols - 1 {
+                        Rectangle()
+                            .fill(tableBorder)
+                            .frame(width: 1)
+                    }
+                }
+            }
+            .background(tableHeaderBackground)
+
+            Rectangle().fill(tableBorder).frame(height: 1)
+
+            // Body rows
+            ForEach(rows.indices, id: \.self) { r in
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(0..<cols, id: \.self) { c in
+                        Text(styledInline(c < rows[r].count ? rows[r][c] : ""))
+                            .font(.callout)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                        if c < cols - 1 {
+                            Rectangle()
+                                .fill(tableBorder)
+                                .frame(width: 1)
+                        }
+                    }
+                }
+                .background(r.isMultiple(of: 2) ? tableRowBackground : Color.clear)
+                if r < rows.count - 1 {
+                    Rectangle().fill(tableBorder).frame(height: 1)
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tableBorder)
+        )
+    }
+
+    // MARK: - Colors (Dracula-toned)
 
     private var codeBackground: Color { Color(red: 40/255, green: 42/255, blue: 54/255) }
     private var codeForeground: Color { Color(red: 248/255, green: 248/255, blue: 242/255) }
     private var codeChromeBackground: Color { Color(red: 33/255, green: 34/255, blue: 44/255) }
     private var codeChromeForeground: Color { Color(red: 189/255, green: 147/255, blue: 249/255) }
-    private var codeInlineBackground: Color { Color(red: 68/255, green: 71/255, blue: 90/255, opacity: 0.45) }
+    private var codeInlineBackground: Color { Color(red: 68/255, green: 71/255, blue: 90/255, opacity: 0.55) }
     private var codeInlineForeground: Color { Color(red: 241/255, green: 250/255, blue: 140/255) }
+    private var tableBorder: Color { Color.secondary.opacity(0.25) }
+    private var tableHeaderBackground: Color { Color.secondary.opacity(0.12) }
+    private var tableRowBackground: Color { Color.secondary.opacity(0.05) }
 
-    // MARK: - Segmentation
+    // MARK: - Block parser
 
     enum Block: Hashable {
         case paragraph(String)
         case heading(level: Int, text: String)
         case code(String, String?)
         case bullet([String])
+        case ordered([String])
+        case table(headers: [String], rows: [[String]])
+        case rule
 
         static func parse(_ source: String) -> [Block] {
             var blocks: [Block] = []
             var paragraphBuffer: [String] = []
             var bulletBuffer: [String] = []
+            var orderedBuffer: [String] = []
             var codeBuffer: [String] = []
             var currentLang: String?
             var inCode = false
+
+            let lines = source.components(separatedBy: "\n")
 
             func flushParagraph() {
                 let joined = paragraphBuffer.joined(separator: "\n")
@@ -172,18 +233,26 @@ struct MarkdownText: View {
                 }
                 paragraphBuffer.removeAll()
             }
-
             func flushBullets() {
                 if !bulletBuffer.isEmpty {
                     blocks.append(.bullet(bulletBuffer))
                     bulletBuffer.removeAll()
                 }
             }
+            func flushOrdered() {
+                if !orderedBuffer.isEmpty {
+                    blocks.append(.ordered(orderedBuffer))
+                    orderedBuffer.removeAll()
+                }
+            }
+            func flushLists() { flushBullets(); flushOrdered() }
 
-            for rawLine in source.components(separatedBy: "\n") {
+            var i = 0
+            while i < lines.count {
+                let rawLine = lines[i]
                 let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
-                // Fence toggle
+                // Fence
                 if trimmed.hasPrefix("```") {
                     if inCode {
                         blocks.append(.code(codeBuffer.joined(separator: "\n"), currentLang))
@@ -192,61 +261,144 @@ struct MarkdownText: View {
                         inCode = false
                     } else {
                         flushParagraph()
-                        flushBullets()
+                        flushLists()
                         let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                         currentLang = lang.isEmpty ? nil : lang
                         inCode = true
                     }
+                    i += 1
                     continue
                 }
                 if inCode {
                     codeBuffer.append(rawLine)
+                    i += 1
                     continue
                 }
 
-                // Heading (# through ######)
+                // Table: current is |cells|, next line is separator (----|----)
+                if trimmed.hasPrefix("|"), trimmed.hasSuffix("|"), i + 1 < lines.count {
+                    let nextTrimmed = lines[i + 1].trimmingCharacters(in: .whitespaces)
+                    if isTableSeparator(nextTrimmed) {
+                        flushParagraph()
+                        flushLists()
+                        let headers = parseTableRow(trimmed)
+                        var rows: [[String]] = []
+                        var j = i + 2
+                        while j < lines.count {
+                            let bodyTrimmed = lines[j].trimmingCharacters(in: .whitespaces)
+                            if bodyTrimmed.hasPrefix("|"), bodyTrimmed.hasSuffix("|") {
+                                rows.append(parseTableRow(bodyTrimmed))
+                                j += 1
+                            } else {
+                                break
+                            }
+                        }
+                        blocks.append(.table(headers: headers, rows: rows))
+                        i = j
+                        continue
+                    }
+                }
+
+                // Horizontal rule
+                if isHorizontalRule(trimmed) {
+                    flushParagraph()
+                    flushLists()
+                    blocks.append(.rule)
+                    i += 1
+                    continue
+                }
+
+                // Heading
                 if trimmed.hasPrefix("#") {
-                    let hashPrefix = trimmed.prefix(while: { $0 == "#" })
-                    let level = hashPrefix.count
-                    if level >= 1, level <= 6 {
-                        let after = trimmed.dropFirst(level)
+                    let hashCount = trimmed.prefix(while: { $0 == "#" }).count
+                    if hashCount >= 1, hashCount <= 6 {
+                        let after = trimmed.dropFirst(hashCount)
                         if after.hasPrefix(" ") {
                             flushParagraph()
-                            flushBullets()
+                            flushLists()
                             let text = String(after.dropFirst()).trimmingCharacters(in: .whitespaces)
-                            blocks.append(.heading(level: level, text: text))
+                            blocks.append(.heading(level: hashCount, text: text))
+                            i += 1
                             continue
                         }
                     }
                 }
 
-                // Bullet (- or *)
+                // Bulleted list
                 if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
                     flushParagraph()
+                    flushOrdered()
                     bulletBuffer.append(String(trimmed.dropFirst(2)))
+                    i += 1
                     continue
                 }
 
-                // Non-bullet line ends bullet run
-                flushBullets()
+                // Ordered list: "1. " / "12. " etc.
+                if let dotIdx = trimmed.firstIndex(of: "."),
+                   let space = trimmed[trimmed.index(after: dotIdx)...].first,
+                   space == " ",
+                   trimmed[..<dotIdx].allSatisfy(\.isNumber),
+                   !trimmed[..<dotIdx].isEmpty
+                {
+                    flushParagraph()
+                    flushBullets()
+                    let content = trimmed[trimmed.index(dotIdx, offsetBy: 2)...]
+                    orderedBuffer.append(String(content))
+                    i += 1
+                    continue
+                }
+
+                // A non-list line ends any active list
+                flushLists()
 
                 if trimmed.isEmpty {
-                    // Blank line separates paragraphs
                     flushParagraph()
                 } else {
                     paragraphBuffer.append(rawLine)
                 }
+                i += 1
             }
 
-            // Recovery: unterminated fence — dump raw text so nothing is lost
             if inCode {
+                // Unterminated fence — recover as raw text so nothing is lost
                 paragraphBuffer.append("```" + (currentLang ?? ""))
                 paragraphBuffer.append(contentsOf: codeBuffer)
             }
             flushParagraph()
-            flushBullets()
+            flushLists()
 
             return blocks.isEmpty ? [.paragraph(source)] : blocks
+        }
+
+        // MARK: - Helpers
+
+        private static func isTableSeparator(_ line: String) -> Bool {
+            guard line.hasPrefix("|"), line.hasSuffix("|") else { return false }
+            let cells = parseTableRow(line)
+            guard !cells.isEmpty else { return false }
+            for cell in cells {
+                let stripped = cell.replacingOccurrences(of: " ", with: "")
+                if stripped.isEmpty { return false }
+                for ch in stripped {
+                    if ch != "-" && ch != ":" { return false }
+                }
+            }
+            return true
+        }
+
+        private static func parseTableRow(_ line: String) -> [String] {
+            var content = line
+            if content.hasPrefix("|") { content = String(content.dropFirst()) }
+            if content.hasSuffix("|") { content = String(content.dropLast()) }
+            return content.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+
+        private static func isHorizontalRule(_ line: String) -> Bool {
+            guard line.count >= 3 else { return false }
+            let allowed: Set<Character> = ["-", "*", "_"]
+            guard let first = line.first, allowed.contains(first) else { return false }
+            let stripped = line.replacingOccurrences(of: " ", with: "")
+            return stripped.count >= 3 && stripped.allSatisfy { $0 == first }
         }
     }
 }
