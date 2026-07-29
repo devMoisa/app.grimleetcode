@@ -23,6 +23,22 @@ struct GrinLeetAPI {
         return response.problem.toDomain()
     }
 
+    func runCode(
+        language: ProgrammingLanguage,
+        code: String,
+        stdin: String = "",
+        timeoutSeconds: Double = 10
+    ) async throws -> ExecutionResult {
+        let body = RunRequest(
+            language: language.rawValue,
+            code: code,
+            stdin: stdin,
+            timeout_seconds: timeoutSeconds
+        )
+        let response: RunResponse = try await post(path: "run", body: body)
+        return response.toExecutionResult()
+    }
+
     func health() async throws -> HealthResponse {
         try await get(path: "health")
     }
@@ -74,6 +90,56 @@ struct GrinLeetAPI {
     struct HealthResponse: Decodable {
         let status: String
         let model: String
+    }
+
+    private struct RunRequest: Encodable {
+        let language: String
+        let code: String
+        let stdin: String
+        let timeout_seconds: Double
+    }
+
+    private struct RunResponse: Decodable {
+        let stdout: String
+        let stderr: String
+        let exit_code: Int
+        let duration_ms: Int
+        let timed_out: Bool
+        let compile_error: String?
+
+        func toExecutionResult() -> ExecutionResult {
+            let status: ExecutionResult.Status
+            if compile_error != nil {
+                status = .error
+            } else if timed_out {
+                status = .error
+            } else if exit_code == 0 {
+                status = .success
+            } else {
+                status = .failed
+            }
+
+            var combinedStderr = stderr
+            if let ce = compile_error, !ce.isEmpty {
+                let sep = combinedStderr.isEmpty ? "" : "\n\n"
+                combinedStderr = "Compile error:\n\(ce)\(sep)\(combinedStderr)"
+            }
+
+            var verdict: String?
+            if timed_out {
+                verdict = "Timed out after \(duration_ms) ms."
+            } else if exit_code != 0 && compile_error == nil {
+                verdict = "Exited with code \(exit_code)."
+            }
+
+            return ExecutionResult(
+                status: status,
+                stdout: stdout,
+                stderr: combinedStderr,
+                verdict: verdict,
+                executionTimeMs: duration_ms
+            )
+        }
     }
 
     // MARK: - Error

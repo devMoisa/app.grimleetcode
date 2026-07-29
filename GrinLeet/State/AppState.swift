@@ -34,19 +34,25 @@ final class AppState {
         lastResult = nil
     }
 
-    /// Mock "run" — replace with local Python/PythonKit or FastAPI call later.
+    /// Executes the current code against the FastAPI backend.
     @MainActor
     func runCurrentCode() async {
         isRunning = true
         defer { isRunning = false }
-        try? await Task.sleep(for: .milliseconds(600))
-        lastResult = ExecutionResult(
-            status: .success,
-            stdout: "Mock stdout for \(selectedLanguage.rawValue).\n(Wire this to PythonKit / FastAPI to make it real.)",
-            stderr: "",
-            verdict: nil,
-            executionTimeMs: 42
-        )
+        do {
+            lastResult = try await GrinLeetAPI.default.runCode(
+                language: selectedLanguage,
+                code: currentCode
+            )
+        } catch {
+            lastResult = ExecutionResult(
+                status: .error,
+                stdout: "",
+                stderr: error.localizedDescription,
+                verdict: "Could not reach backend.",
+                executionTimeMs: nil
+            )
+        }
     }
 
     /// Mock "submit" — replace with AI verdict call.
