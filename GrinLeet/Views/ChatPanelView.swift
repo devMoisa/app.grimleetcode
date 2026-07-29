@@ -31,6 +31,13 @@ struct ChatPanelView: View {
                 .fill(accentGradient.opacity(0.6))
                 .frame(width: 1)
         }
+        .task {
+            // Focus the composer as soon as the panel appears. A tiny yield lets
+            // SwiftUI mount the TextField before we try to focus it — without it
+            // the FocusState assignment sometimes lands before the field exists.
+            try? await Task.sleep(for: .milliseconds(60))
+            inputFocused = true
+        }
     }
 
     // MARK: - Header
@@ -340,10 +347,10 @@ private struct MessageBubble: View {
     @ViewBuilder
     private var bubble: some View {
         let isUser = message.role == .user
-        Text(message.content)
-            .font(.callout)
-            .textSelection(.enabled)
-            .foregroundStyle(isUser ? .white : .primary)
+        MarkdownText(
+            source: message.content,
+            textColor: isUser ? .white : .primary
+        )
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
