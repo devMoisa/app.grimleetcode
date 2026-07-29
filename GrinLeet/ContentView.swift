@@ -14,9 +14,9 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                ProblemListView(state: state)
+                SidebarView(state: state)
             } content: {
-                ProblemDetailView(state: state)
+                middlePane
             } detail: {
                 CodeWorkspaceView(state: state)
             }
@@ -31,6 +31,16 @@ struct ContentView: View {
             ProblemGeneratorView(state: state)
         }
         .frame(minWidth: 1100, minHeight: 700)
+    }
+
+    @ViewBuilder
+    private var middlePane: some View {
+        switch state.mode {
+        case .problems:
+            ProblemDetailView(state: state)
+        case .roadmap:
+            RoadmapLessonView(state: state)
+        }
     }
 }
 

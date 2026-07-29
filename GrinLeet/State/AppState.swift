@@ -3,6 +3,7 @@ import Observation
 
 @Observable
 final class AppState {
+    var mode: AppMode
     var problems: [Problem]
     var selectedProblemID: Problem.ID?
     var selectedLanguage: ProgrammingLanguage
@@ -17,10 +18,19 @@ final class AppState {
     var isChatSending: Bool
     var chatError: String?
 
+    // Roadmap
+    var tracks: [Track]
+    var selectedTrackID: Track.ID?
+    var selectedLessonID: Lesson.ID?
+    /// Exercise IDs that have passed /verify (mapped to their lesson).
+    var completedExercises: [Lesson.ID: Set<Problem.ID>]
+
     init(
         problems: [Problem] = MockData.problems,
+        tracks: [Track] = [PythonRoadmap.track],
         language: ProgrammingLanguage = .python
     ) {
+        self.mode = .problems
         self.problems = problems
         self.selectedProblemID = problems.first?.id
         self.selectedLanguage = language
@@ -32,11 +42,74 @@ final class AppState {
         self.chatMessagesByProblem = [:]
         self.isChatSending = false
         self.chatError = nil
+        self.tracks = tracks
+        self.selectedTrackID = tracks.first?.id
+        self.selectedLessonID = tracks.first?.allLessons.first?.id
+        self.completedExercises = [:]
     }
+
+    // MARK: - Unified resolver
 
     var selectedProblem: Problem? {
         guard let id = selectedProblemID else { return nil }
-        return problems.first(where: { $0.id == id })
+        if let p = problems.first(where: { $0.id == id }) { return p }
+        for track in tracks {
+            if let ex = track.exercise(with: id) { return ex }
+        }
+        return nil
+    }
+
+    // MARK: - Roadmap helpers
+
+    var selectedTrack: Track? {
+        guard let id = selectedTrackID else { return tracks.first }
+        return tracks.first(where: { $0.id == id })
+    }
+
+    var selectedLesson: Lesson? {
+        guard let id = selectedLessonID else { return nil }
+        return selectedTrack?.lesson(with: id)
+    }
+
+    func isExerciseCompleted(lessonID: Lesson.ID, exerciseID: Problem.ID) -> Bool {
+        completedExercises[lessonID]?.contains(exerciseID) ?? false
+    }
+
+    func isLessonCompleted(_ lesson: Lesson) -> Bool {
+        guard !lesson.exercises.isEmpty else { return false }
+        let done = completedExercises[lesson.id] ?? []
+        return lesson.exercises.allSatisfy { done.contains($0.id) }
+    }
+
+    /// Returns (completed, total) exercise count for a lesson.
+    func progress(for lesson: Lesson) -> (Int, Int) {
+        let done = completedExercises[lesson.id] ?? []
+        let hit = lesson.exercises.filter { done.contains($0.id) }.count
+        return (hit, lesson.exercises.count)
+    }
+
+    /// Returns (completed lessons, total lessons) for a module.
+    func progress(for module: Module) -> (Int, Int) {
+        let hit = module.lessons.filter { isLessonCompleted($0) }.count
+        return (hit, module.lessons.count)
+    }
+
+    /// The lesson currently containing `selectedProblemID`, if any.
+    func lessonContainingSelectedProblem() -> Lesson? {
+        guard let pid = selectedProblemID else { return nil }
+        for track in tracks {
+            for lesson in track.allLessons where lesson.exercises.contains(where: { $0.id == pid }) {
+                return lesson
+            }
+        }
+        return nil
+    }
+
+    func selectExercise(_ exercise: Problem, in lesson: Lesson) {
+        selectedProblemID = exercise.id
+        selectedLessonID = lesson.id
+        currentCode = selectedLanguage.starterCode
+        lastResult = nil
     }
 
     var currentChatMessages: [ChatMessage] {
@@ -110,11 +183,15 @@ final class AppState {
         isRunning = true
         defer { isRunning = false }
         do {
-            lastResult = try await GrinLeetAPI.default.verifyCode(
+            let result = try await GrinLeetAPI.default.verifyCode(
                 problem: problem,
                 language: selectedLanguage,
                 code: currentCode
             )
+            lastResult = result
+            if result.status == .success, let lesson = lessonContainingSelectedProblem() {
+                completedExercises[lesson.id, default: []].insert(problem.id)
+            }
         } catch {
             lastResult = ExecutionResult(
                 status: .error,
