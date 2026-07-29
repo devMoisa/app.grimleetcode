@@ -110,6 +110,7 @@ struct MarkdownText: View {
 
     // MARK: - Code block
 
+    @ViewBuilder
     private func codeBlock(_ code: String, language: String?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
@@ -123,10 +124,7 @@ struct MarkdownText: View {
             .padding(.vertical, 6)
             .background(codeChromeBackground)
 
-            Text(code)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(codeForeground)
-                .textSelection(.enabled)
+            codeBody(code, language: language)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(codeBackground)
@@ -136,6 +134,20 @@ struct MarkdownText: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.white.opacity(0.06))
         )
+    }
+
+    @ViewBuilder
+    private func codeBody(_ code: String, language: String?) -> some View {
+        let langKey = language?.lowercased() ?? ""
+        if PythonHighlighter.recognizedAliases.contains(langKey) {
+            Text(PythonHighlighter.highlight(code))
+                .textSelection(.enabled)
+        } else {
+            Text(code)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(codeForeground)
+                .textSelection(.enabled)
+        }
     }
 
     // MARK: - Table
