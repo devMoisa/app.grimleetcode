@@ -112,17 +112,17 @@ struct MarkdownText: View {
 
     private func codeBlock(_ code: String, language: String?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let language, !language.isEmpty {
-                HStack {
-                    Text(language)
-                        .font(.caption2.weight(.semibold).monospaced())
-                        .foregroundStyle(codeChromeForeground)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(codeChromeBackground)
+            HStack(spacing: 8) {
+                Text(language?.isEmpty == false ? language! : "code")
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .foregroundStyle(codeChromeForeground)
+                Spacer()
+                CodeCopyButton(text: code, chromeForeground: codeChromeForeground)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(codeChromeBackground)
+
             Text(code)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(codeForeground)
@@ -202,6 +202,46 @@ struct MarkdownText: View {
     private var tableBorder: Color { Color.secondary.opacity(0.25) }
     private var tableHeaderBackground: Color { Color.secondary.opacity(0.12) }
     private var tableRowBackground: Color { Color.secondary.opacity(0.05) }
+
+    // MARK: - Copy button (used in code block chrome)
+
+    private struct CodeCopyButton: View {
+        let text: String
+        let chromeForeground: Color
+        @State private var justCopied: Bool = false
+
+        var body: some View {
+            Button(action: copy) {
+                HStack(spacing: 4) {
+                    Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                        .font(.caption2)
+                    Text(justCopied ? "Copied" : "Copy")
+                        .font(.caption2.weight(.medium))
+                }
+                .foregroundStyle(justCopied ? Color.green : chromeForeground.opacity(0.8))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Color.white.opacity(justCopied ? 0 : 0.08),
+                    in: RoundedRectangle(cornerRadius: 4)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Copy to clipboard")
+        }
+
+        private func copy() {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+            withAnimation(.easeInOut(duration: 0.15)) { justCopied = true }
+            Task {
+                try? await Task.sleep(for: .milliseconds(1400))
+                withAnimation(.easeInOut(duration: 0.2)) { justCopied = false }
+            }
+        }
+    }
 
     // MARK: - Block parser
 

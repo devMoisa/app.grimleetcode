@@ -169,6 +169,9 @@ private struct ExerciseCard: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
             Spacer()
+
+            askChatcodeButton
+
             if isSelected {
                 Label("Open in editor", systemImage: "arrow.right.circle.fill")
                     .labelStyle(.iconOnly)
@@ -180,6 +183,28 @@ private struct ExerciseCard: View {
                     .font(.title3)
             }
         }
+    }
+
+    private var askChatcodeButton: some View {
+        Button {
+            state.selectExercise(exercise, in: lesson)
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                state.isChatOpen = true
+            }
+        } label: {
+            Image(systemName: "questionmark.bubble.fill")
+                .font(.title3)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.pink, .purple, .cyan],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: .purple.opacity(0.5), radius: 4)
+        }
+        .buttonStyle(.plain)
+        .help("Ask Chatcode to explain this exercise")
     }
 
     private var completionIcon: some View {
