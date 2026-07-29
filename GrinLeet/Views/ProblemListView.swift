@@ -38,6 +38,9 @@ struct ProblemListView: View {
                 }
                 .help("Generate a new problem via AI")
             }
+            ToolbarItem(placement: .primaryAction) {
+                ChatcodeToggleButton(state: state)
+            }
         }
         .frame(minWidth: 260)
     }

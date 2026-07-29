@@ -54,6 +54,22 @@ struct GrinLeetAPI {
         return response.toExecutionResult()
     }
 
+    func chat(
+        problem: Problem,
+        history: [ChatMessage]
+    ) async throws -> ChatMessage {
+        let body = ChatBody(
+            problem: VerifyProblemDTO(from: problem),
+            messages: history.map { ChatMessageDTO(role: $0.role.rawValue, content: $0.content) },
+            model: nil
+        )
+        let response: ChatResponseDTO = try await post(path: "chat", body: body)
+        return ChatMessage(
+            role: .assistant,
+            content: response.message.content
+        )
+    }
+
     func health() async throws -> HealthResponse {
         try await get(path: "health")
     }
@@ -201,6 +217,22 @@ struct GrinLeetAPI {
         let expected: String
         let predicted: String
         let reasoning: String
+    }
+
+    private struct ChatBody: Encodable {
+        let problem: VerifyProblemDTO
+        let messages: [ChatMessageDTO]
+        let model: String?
+    }
+
+    private struct ChatMessageDTO: Codable {
+        let role: String
+        let content: String
+    }
+
+    private struct ChatResponseDTO: Decodable {
+        let message: ChatMessageDTO
+        let model: String
     }
 
     private struct RunResponse: Decodable {

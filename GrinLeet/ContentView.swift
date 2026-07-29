@@ -12,14 +12,21 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            ProblemListView(state: state)
-        } content: {
-            ProblemDetailView(state: state)
-        } detail: {
-            CodeWorkspaceView(state: state)
+        HStack(spacing: 0) {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                ProblemListView(state: state)
+            } content: {
+                ProblemDetailView(state: state)
+            } detail: {
+                CodeWorkspaceView(state: state)
+            }
+            .navigationSplitViewStyle(.balanced)
+
+            if state.isChatOpen {
+                ChatPanelView(state: state)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $state.isGeneratorPresented) {
             ProblemGeneratorView(state: state)
         }
