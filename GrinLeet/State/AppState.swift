@@ -55,18 +55,26 @@ final class AppState {
         }
     }
 
-    /// Mock "submit" — replace with AI verdict call.
+    /// Submits the current code to the AI judge via /verify.
     @MainActor
     func submitCurrentCode() async {
+        guard let problem = selectedProblem else { return }
         isRunning = true
         defer { isRunning = false }
-        try? await Task.sleep(for: .milliseconds(900))
-        lastResult = ExecutionResult(
-            status: .success,
-            stdout: "",
-            stderr: "",
-            verdict: "All example cases passed (mocked AI verdict).",
-            executionTimeMs: nil
-        )
+        do {
+            lastResult = try await GrinLeetAPI.default.verifyCode(
+                problem: problem,
+                language: selectedLanguage,
+                code: currentCode
+            )
+        } catch {
+            lastResult = ExecutionResult(
+                status: .error,
+                stdout: "",
+                stderr: error.localizedDescription,
+                verdict: "Could not reach backend for AI verdict.",
+                executionTimeMs: nil
+            )
+        }
     }
 }

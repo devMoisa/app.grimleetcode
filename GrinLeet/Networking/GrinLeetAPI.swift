@@ -39,6 +39,21 @@ struct GrinLeetAPI {
         return response.toExecutionResult()
     }
 
+    func verifyCode(
+        problem: Problem,
+        language: ProgrammingLanguage,
+        code: String
+    ) async throws -> ExecutionResult {
+        let body = VerifyRequest(
+            problem: VerifyProblemDTO(from: problem),
+            language: language.rawValue,
+            code: code,
+            model: nil
+        )
+        let response: VerifyResponse = try await post(path: "verify", body: body)
+        return response.toExecutionResult()
+    }
+
     func health() async throws -> HealthResponse {
         try await get(path: "health")
     }
@@ -97,6 +112,95 @@ struct GrinLeetAPI {
         let code: String
         let stdin: String
         let timeout_seconds: Double
+    }
+
+    private struct VerifyRequest: Encodable {
+        let problem: VerifyProblemDTO
+        let language: String
+        let code: String
+        let model: String?
+    }
+
+    private struct VerifyProblemDTO: Encodable {
+        let title: String
+        let difficulty: String
+        let tags: [String]
+        let statement: String
+        let examples: [VerifyExampleDTO]
+        let constraints: [String]
+
+        init(from problem: Problem) {
+            self.title = problem.title
+            self.difficulty = problem.difficulty.rawValue
+            self.tags = problem.tags
+            self.statement = problem.statement
+            self.examples = problem.examples.map {
+                VerifyExampleDTO(input: $0.input, output: $0.output, explanation: $0.explanation)
+            }
+            self.constraints = problem.constraints
+        }
+    }
+
+    private struct VerifyExampleDTO: Encodable {
+        let input: String
+        let output: String
+        let explanation: String?
+    }
+
+    private struct VerifyResponse: Decodable {
+        let passed: Bool
+        let verdict: String
+        let analysis: String
+        let examples: [ExampleVerdictDTO]
+        let edge_cases: [String]
+        let model: String
+
+        func toExecutionResult() -> ExecutionResult {
+            var stdoutLines: [String] = []
+
+            if !examples.isEmpty {
+                stdoutLines.append("Per-example verdicts:")
+                for ev in examples {
+                    let mark = ev.passed ? "✓" : "✗"
+                    stdoutLines.append("  \(mark) Example \(ev.example_index): \(ev.reasoning)")
+                    if !ev.passed {
+                        stdoutLines.append("      expected: \(ev.expected)")
+                        stdoutLines.append("      predicted: \(ev.predicted)")
+                    }
+                }
+                stdoutLines.append("")
+            }
+
+            stdoutLines.append("Analysis:")
+            stdoutLines.append(analysis)
+
+            if !edge_cases.isEmpty {
+                stdoutLines.append("")
+                stdoutLines.append("Edge cases to consider:")
+                for ec in edge_cases {
+                    stdoutLines.append("  • \(ec)")
+                }
+            }
+
+            stdoutLines.append("")
+            stdoutLines.append("Judged by \(model).")
+
+            return ExecutionResult(
+                status: passed ? .success : .failed,
+                stdout: stdoutLines.joined(separator: "\n"),
+                stderr: "",
+                verdict: verdict,
+                executionTimeMs: nil
+            )
+        }
+    }
+
+    private struct ExampleVerdictDTO: Decodable {
+        let example_index: Int
+        let passed: Bool
+        let expected: String
+        let predicted: String
+        let reasoning: String
     }
 
     private struct RunResponse: Decodable {
