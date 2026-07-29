@@ -69,39 +69,12 @@ private struct LessonContent: View {
         }
     }
 
-    // MARK: - Theory (mocked)
+    // MARK: - Theory
 
     private var theorySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Divider()
-            markdownTheory
-        }
-    }
-
-    /// Renders `lesson.theory` (Markdown-ish) as attributed text. Falls back to plain
-    /// on parse failure so long lessons still render.
-    private var markdownTheory: some View {
-        let raw = lesson.theory
-        if let attributed = try? AttributedString(
-            markdown: raw,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-        ) {
-            return AnyView(
-                Text(attributed)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineSpacing(3)
-            )
-        } else {
-            return AnyView(
-                Text(raw)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            )
+            MarkdownText(source: lesson.theory)
         }
     }
 
