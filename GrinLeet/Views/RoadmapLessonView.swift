@@ -131,51 +131,124 @@ private struct ExerciseCard: View {
     }
 
     var body: some View {
-        Button {
-            state.selectExercise(exercise, in: lesson)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    completionIcon
-                    Text("Exercise \(index) · \(exercise.title)")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    if isSelected {
-                        Label("Open in editor", systemImage: "arrow.right.circle.fill")
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(.tint)
-                    } else {
-                        Image(systemName: "arrow.right")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(exercise.statement)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            MarkdownText(source: exercise.statement)
+            if !exercise.examples.isEmpty {
+                examplesSection
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                Color.secondary.opacity(isSelected ? 0.15 : 0.07),
-                in: RoundedRectangle(cornerRadius: 10)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        isSelected ? Color.accentColor : Color.clear,
-                        lineWidth: 1.5
-                    )
-            )
+            if !exercise.constraints.isEmpty {
+                constraintsSection
+            }
         }
-        .buttonStyle(.plain)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.secondary.opacity(isSelected ? 0.15 : 0.07),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(
+                    isSelected ? Color.accentColor : Color.clear,
+                    lineWidth: 1.5
+                )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.selectExercise(exercise, in: lesson)
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            completionIcon
+            Text("Exercise \(index) · \(exercise.title)")
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Spacer()
+            if isSelected {
+                Label("Open in editor", systemImage: "arrow.right.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.tint)
+                    .font(.title3)
+            } else {
+                Image(systemName: "arrow.right.circle")
+                    .foregroundStyle(.secondary)
+                    .font(.title3)
+            }
+        }
     }
 
     private var completionIcon: some View {
         Image(systemName: isCompleted ? "checkmark.seal.fill" : "seal")
             .foregroundStyle(isCompleted ? .green : .secondary)
             .font(.headline)
+    }
+
+    // MARK: - Examples
+
+    private var examplesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            Text("Examples")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(exercise.examples) { example in
+                ExampleBlock(example: example)
+            }
+        }
+    }
+
+    // MARK: - Constraints
+
+    private var constraintsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text("Constraints")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(exercise.constraints, id: \.self) { c in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(.tertiary)
+                        .frame(width: 4, height: 4)
+                        .padding(.top, 8)
+                    Text(c)
+                        .font(.system(.callout, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+}
+
+private struct ExampleBlock: View {
+    let example: Problem.Example
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            row("Input", value: example.input)
+            row("Output", value: example.output)
+            if let explanation = example.explanation, !explanation.isEmpty {
+                row("Explanation", value: explanation, monospaced: false)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func row(_ label: String, value: String, monospaced: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(monospaced ? .system(.callout, design: .monospaced) : .callout)
+                .textSelection(.enabled)
+        }
     }
 }
