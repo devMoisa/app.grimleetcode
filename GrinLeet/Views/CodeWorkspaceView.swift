@@ -69,7 +69,7 @@ struct CodeWorkspaceView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(state.isRunning || state.selectedProblem == nil)
-            .keyboardShortcut("r", modifiers: .command)
+            .keyboardShortcut(.return, modifiers: [.command, .shift])
 
             Button {
                 Task { await state.submitCurrentCode() }
