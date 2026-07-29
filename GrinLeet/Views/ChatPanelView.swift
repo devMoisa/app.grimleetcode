@@ -3,6 +3,9 @@ import SwiftUI
 struct ChatPanelView: View {
     @Bindable var state: AppState
     @State private var draft: String = ""
+    @State private var recorder = AudioRecorder()
+    @State private var isTranscribing: Bool = false
+    @State private var micError: String?
     @FocusState private var inputFocused: Bool
 
     private var accentGradient: LinearGradient {
@@ -171,33 +174,125 @@ struct ChatPanelView: View {
     // MARK: - Input
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message Chatcode…", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...5)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.25))
-                )
-                .focused($inputFocused)
-                .onSubmit { send() }
-
-            Button {
-                send()
-            } label: {
-                Image(systemName: state.isChatSending ? "hourglass" : "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(canSend ? AnyShapeStyle(accentGradient) : AnyShapeStyle(Color.secondary))
-                    .shadow(color: canSend ? .purple.opacity(0.5) : .clear, radius: canSend ? 6 : 0)
+        VStack(alignment: .leading, spacing: 6) {
+            if let micError {
+                Label(micError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.12), in: Capsule())
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .keyboardShortcut(.return, modifiers: [])
+
+            HStack(alignment: .bottom, spacing: 8) {
+                micButton
+
+                TextField(
+                    recorder.isRecording ? recordingHint : "Message Chatcode…",
+                    text: $draft,
+                    axis: .vertical
+                )
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(recorder.isRecording ? Color.red.opacity(0.6) : Color.secondary.opacity(0.25))
+                    )
+                    .disabled(recorder.isRecording || isTranscribing)
+                    .focused($inputFocused)
+                    .onSubmit { send() }
+
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: state.isChatSending ? "hourglass" : "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(canSend ? AnyShapeStyle(accentGradient) : AnyShapeStyle(Color.secondary))
+                        .shadow(color: canSend ? .purple.opacity(0.5) : .clear, radius: canSend ? 6 : 0)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: [])
+            }
         }
         .padding(12)
+    }
+
+    private var recordingHint: String {
+        let seconds = Int(recorder.elapsed)
+        return "Recording…  \(String(format: "%d:%02d", seconds / 60, seconds % 60))"
+    }
+
+    private var micButton: some View {
+        Button {
+            micTapped()
+        } label: {
+            Image(systemName: micIcon)
+                .font(.title2)
+                .foregroundStyle(micTint)
+                .shadow(color: recorder.isRecording ? .red.opacity(0.6) : .clear, radius: 6)
+                .scaleEffect(recorder.isRecording ? 1.08 : 1.0)
+                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: recorder.isRecording)
+        }
+        .buttonStyle(.plain)
+        .disabled(isTranscribing || state.isChatSending)
+        .help(recorder.isRecording ? "Stop and transcribe" : "Dictate a message")
+    }
+
+    private var micIcon: String {
+        if isTranscribing { return "waveform.badge.magnifyingglass" }
+        if recorder.isRecording { return "stop.circle.fill" }
+        return "mic.circle.fill"
+    }
+
+    private var micTint: AnyShapeStyle {
+        if recorder.isRecording { return AnyShapeStyle(Color.red) }
+        if isTranscribing { return AnyShapeStyle(Color.secondary) }
+        return AnyShapeStyle(accentGradient)
+    }
+
+    private func micTapped() {
+        micError = nil
+        if recorder.isRecording {
+            Task { await stopAndTranscribe() }
+        } else {
+            Task { await startRecording() }
+        }
+    }
+
+    private func startRecording() async {
+        guard await recorder.requestPermission() else {
+            micError = "Microphone permission denied — enable it in System Settings › Privacy."
+            return
+        }
+        do {
+            try recorder.start()
+        } catch {
+            micError = "Could not start recording: \(error.localizedDescription)"
+        }
+    }
+
+    private func stopAndTranscribe() async {
+        guard let url = recorder.stop() else { return }
+        isTranscribing = true
+        defer {
+            isTranscribing = false
+            try? FileManager.default.removeItem(at: url)
+        }
+        do {
+            let text = try await GrinLeetAPI.default.transcribe(audioURL: url, language: "pt")
+            if text.isEmpty {
+                micError = "Didn't hear anything — try again."
+            } else {
+                draft = draft.isEmpty ? text : "\(draft) \(text)"
+                inputFocused = true
+            }
+        } catch {
+            micError = "Transcription failed: \(error.localizedDescription)"
+        }
     }
 
     private var canSend: Bool {

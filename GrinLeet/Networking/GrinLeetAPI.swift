@@ -54,6 +54,78 @@ struct GrinLeetAPI {
         return response.toExecutionResult()
     }
 
+    func transcribe(audioURL: URL, language: String? = "pt") async throws -> String {
+        let boundary = "GrinLeet-\(UUID().uuidString)"
+        var request = URLRequest(url: baseURL.appendingPathComponent("transcribe"))
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        var body = Data()
+        let filename = audioURL.lastPathComponent
+        let mime = Self.mimeType(for: audioURL)
+        let audioData: Data
+        do {
+            audioData = try Data(contentsOf: audioURL)
+        } catch {
+            throw APIError.transport(error)
+        }
+
+        body.appendMultipartField(
+            boundary: boundary,
+            name: "file",
+            filename: filename,
+            contentType: mime,
+            data: audioData
+        )
+        if let language {
+            body.appendMultipartTextField(boundary: boundary, name: "language", value: language)
+        }
+        body.appendMultipartClosing(boundary: boundary)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.transport(error)
+        }
+
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = Self.extractError(from: data)
+                ?? String(data: data, encoding: .utf8)
+                ?? "no body"
+            throw APIError.httpStatus(http.statusCode, message)
+        }
+
+        let decoded: TranscribeResponse
+        do {
+            decoded = try JSONDecoder().decode(TranscribeResponse.self, from: data)
+        } catch {
+            throw APIError.decodingFailed(error)
+        }
+        return decoded.text
+    }
+
+    private struct TranscribeResponse: Decodable {
+        let text: String
+        let model: String
+        let duration_ms: Int
+    }
+
+    private static func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "m4a", "mp4": "audio/m4a"
+        case "wav": "audio/wav"
+        case "mp3": "audio/mpeg"
+        case "caf": "audio/x-caf"
+        case "aif", "aiff": "audio/aiff"
+        default: "application/octet-stream"
+        }
+    }
+
     func chat(
         problem: Problem,
         history: [ChatMessage]
