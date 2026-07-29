@@ -126,6 +126,27 @@ struct GrinLeetAPI {
         }
     }
 
+    func generateExercises(
+        language: ProgrammingLanguage,
+        lessonTitle: String,
+        lessonSummary: String,
+        moduleTitle: String,
+        trackTitle: String,
+        count: Int = 3
+    ) async throws -> [Problem] {
+        let body = ExercisesBody(
+            language: language.rawValue,
+            lesson_title: lessonTitle,
+            lesson_summary: lessonSummary,
+            module_title: moduleTitle,
+            track_title: trackTitle,
+            count: count,
+            model: nil
+        )
+        let response: ExercisesResponse = try await post(path: "exercises/generate", body: body)
+        return response.exercises.map { $0.toDomain() }
+    }
+
     func chat(
         problem: Problem,
         history: [ChatMessage]
@@ -289,6 +310,43 @@ struct GrinLeetAPI {
         let expected: String
         let predicted: String
         let reasoning: String
+    }
+
+    private struct ExercisesBody: Encodable {
+        let language: String
+        let lesson_title: String
+        let lesson_summary: String
+        let module_title: String
+        let track_title: String
+        let count: Int
+        let model: String?
+    }
+
+    private struct ExercisesResponse: Decodable {
+        let exercises: [ExerciseDTO]
+        let model: String
+    }
+
+    private struct ExerciseDTO: Decodable {
+        let title: String
+        let statement: String
+        let examples: [ExampleDTO]
+        let constraints: [String]
+
+        func toDomain() -> Problem {
+            Problem(
+                id: UUID(),
+                title: title,
+                difficulty: .easy,
+                tags: [],
+                statement: statement,
+                examples: examples.map {
+                    Problem.Example(input: $0.input, output: $0.output, explanation: $0.explanation)
+                },
+                constraints: constraints,
+                createdAt: Date()
+            )
+        }
     }
 
     private struct ChatBody: Encodable {

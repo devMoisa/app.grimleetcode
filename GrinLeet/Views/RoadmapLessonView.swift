@@ -34,7 +34,9 @@ private struct LessonContent: View {
                     theorySection
                 }
 
-                if !lesson.exercises.isEmpty {
+                if lesson.exercises.isEmpty {
+                    generateExercisesCard
+                } else {
                     exercisesSection
                 }
             }
@@ -42,6 +44,55 @@ private struct LessonContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(lesson.title)
+    }
+
+    // MARK: - Generate exercises CTA
+
+    private var isGenerating: Bool {
+        state.lessonsGeneratingExercises.contains(lesson.id)
+    }
+
+    private var generateExercisesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.pink, .purple, .cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .shadow(color: .purple.opacity(0.4), radius: 4)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No exercises yet")
+                        .font(.headline)
+                    Text("Ask the AI to generate 3 practice exercises for this lesson.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    Task { await state.generateExercises(for: lesson) }
+                } label: {
+                    if isGenerating {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Generating…")
+                        }
+                    } else {
+                        Label("Generate exercises", systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isGenerating)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        }
     }
 
     // MARK: - Header
@@ -85,14 +136,21 @@ private struct LessonContent: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(.tint)
                 .font(.title3)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Content not generated yet")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No theory yet")
                     .font(.headline)
-                Text("Only the outline exists so far. Phase 2 will wire this up to POST /lesson/generate so you can ask the AI to produce the theory and exercises for this lesson on demand.")
+                Text("This lesson is a stub — outline only. Generate exercises to start practicing the concept right away, or use Chatcode to ask for a summary.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let error = state.lastGenerationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.top, 2)
+                }
             }
+            Spacer(minLength: 8)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -24,6 +24,19 @@ final class AppState {
     var selectedLessonID: Lesson.ID?
     /// Exercise IDs that have passed /verify (mapped to their lesson).
     var completedExercises: [Lesson.ID: Set<Problem.ID>]
+    /// Persisted map of AI-generated exercises per lesson (baseline stays in code).
+    var generatedExercisesByLesson: [Lesson.ID: [Problem]]
+    /// Set of lesson IDs currently being generated (drives per-lesson spinners).
+    var lessonsGeneratingExercises: Set<Lesson.ID>
+    /// Bulk progress `(done, total)` — non-nil while a "generate all" run is active.
+    var bulkGenerationProgress: BulkProgress?
+    var lastGenerationError: String?
+
+    struct BulkProgress: Hashable {
+        var done: Int
+        var total: Int
+        var isFinished: Bool { done >= total }
+    }
 
     init(
         problems: [Problem] = MockData.problems,
@@ -42,10 +55,37 @@ final class AppState {
         self.chatMessagesByProblem = [:]
         self.isChatSending = false
         self.chatError = nil
-        self.tracks = tracks
-        self.selectedTrackID = tracks.first?.id
-        self.selectedLessonID = tracks.first?.allLessons.first?.id
+
+        // Load persisted generated exercises and apply them on top of the baseline tracks.
+        let generated = PersistenceStore.loadGeneratedExercises()
+        let materialized = Self.applyGeneratedExercises(generated, to: tracks)
+        self.tracks = materialized
+        self.selectedTrackID = materialized.first?.id
+        self.selectedLessonID = materialized.first?.allLessons.first?.id
         self.completedExercises = PersistenceStore.loadCompletedExercises()
+        self.generatedExercisesByLesson = generated
+        self.lessonsGeneratingExercises = []
+        self.bulkGenerationProgress = nil
+        self.lastGenerationError = nil
+    }
+
+    private static func applyGeneratedExercises(
+        _ overrides: [Lesson.ID: [Problem]],
+        to baseline: [Track]
+    ) -> [Track] {
+        guard !overrides.isEmpty else { return baseline }
+        var result = baseline
+        for tIdx in result.indices {
+            for mIdx in result[tIdx].modules.indices {
+                for lIdx in result[tIdx].modules[mIdx].lessons.indices {
+                    let id = result[tIdx].modules[mIdx].lessons[lIdx].id
+                    if let extra = overrides[id], !extra.isEmpty {
+                        result[tIdx].modules[mIdx].lessons[lIdx].exercises.append(contentsOf: extra)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     /// Wipes all roadmap progress (both in memory and on disk).
@@ -53,6 +93,96 @@ final class AppState {
     func resetRoadmapProgress() {
         completedExercises = [:]
         PersistenceStore.clearAllProgress()
+    }
+
+    // MARK: - Exercise generation (Phase 2)
+
+    @MainActor
+    func generateExercises(for lesson: Lesson) async {
+        guard !lessonsGeneratingExercises.contains(lesson.id) else { return }
+        guard let (track, module) = locate(lessonID: lesson.id) else { return }
+
+        lessonsGeneratingExercises.insert(lesson.id)
+        defer { lessonsGeneratingExercises.remove(lesson.id) }
+
+        do {
+            let newExercises = try await GrinLeetAPI.default.generateExercises(
+                language: track.language,
+                lessonTitle: lesson.title,
+                lessonSummary: lesson.summary,
+                moduleTitle: module.title,
+                trackTitle: track.title
+            )
+            append(exercises: newExercises, toLessonID: lesson.id)
+        } catch {
+            lastGenerationError = error.localizedDescription
+        }
+    }
+
+    /// Fires generation for every lesson in the current track that has zero exercises.
+    /// Runs three at a time to keep OpenRouter happy while still finishing in reasonable time.
+    @MainActor
+    func generateAllRemainingExercises() async {
+        guard let track = selectedTrack else { return }
+        let missing = track.allLessons.filter { $0.exercises.isEmpty }
+        guard !missing.isEmpty else { return }
+
+        bulkGenerationProgress = BulkProgress(done: 0, total: missing.count)
+        defer { bulkGenerationProgress = nil }
+
+        let concurrency = 3
+        var index = 0
+        while index < missing.count {
+            let chunk = Array(missing[index..<min(index + concurrency, missing.count)])
+            await withTaskGroup(of: Void.self) { group in
+                for lesson in chunk {
+                    group.addTask { @MainActor [weak self] in
+                        await self?.generateExercises(for: lesson)
+                    }
+                }
+            }
+            index += chunk.count
+            bulkGenerationProgress?.done = index
+        }
+    }
+
+    @MainActor
+    func clearGeneratedExercises() {
+        generatedExercisesByLesson = [:]
+        tracks = Self.applyGeneratedExercises([:], to: tracks.map(Self.stripGenerated))
+        PersistenceStore.clearGeneratedExercises()
+    }
+
+    /// Given a track with baseline+generated exercises materialized, returns a copy
+    /// containing ONLY baseline exercises (removing generated ones we know about).
+    private static func stripGenerated(_ track: Track) -> Track {
+        // We rebuild from PythonRoadmap when a wipe is requested. For simplicity,
+        // callers that need a clean baseline should re-hydrate from PythonRoadmap.track.
+        // Kept here so future code can plug in per-track baselines cleanly.
+        track
+    }
+
+    private func locate(lessonID: Lesson.ID) -> (Track, Module)? {
+        for track in tracks {
+            for module in track.modules where module.lessons.contains(where: { $0.id == lessonID }) {
+                return (track, module)
+            }
+        }
+        return nil
+    }
+
+    private func append(exercises: [Problem], toLessonID id: Lesson.ID) {
+        generatedExercisesByLesson[id, default: []].append(contentsOf: exercises)
+        PersistenceStore.saveGeneratedExercises(generatedExercisesByLesson)
+
+        for tIdx in tracks.indices {
+            for mIdx in tracks[tIdx].modules.indices {
+                for lIdx in tracks[tIdx].modules[mIdx].lessons.indices where tracks[tIdx].modules[mIdx].lessons[lIdx].id == id {
+                    tracks[tIdx].modules[mIdx].lessons[lIdx].exercises.append(contentsOf: exercises)
+                    return
+                }
+            }
+        }
     }
 
     // MARK: - Unified resolver

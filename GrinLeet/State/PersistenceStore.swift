@@ -6,6 +6,7 @@ import Foundation
 enum PersistenceStore {
     private static let defaults = UserDefaults.standard
     private static let completedExercisesKey = "grinleet.completedExercises.v1"
+    private static let generatedExercisesKey = "grinleet.generatedExercises.v1"
 
     // MARK: - Roadmap completions
 
@@ -27,6 +28,43 @@ enum PersistenceStore {
 
     static func clearAllProgress() {
         defaults.removeObject(forKey: completedExercisesKey)
+    }
+
+    // MARK: - Generated roadmap exercises (Phase 2)
+
+    static func loadGeneratedExercises() -> [UUID: [Problem]] {
+        guard
+            let data = defaults.data(forKey: generatedExercisesKey),
+            let decoded = try? JSONDecoder().decode(GeneratedExercisesDTO.self, from: data)
+        else { return [:] }
+        return decoded.toDomain()
+    }
+
+    static func saveGeneratedExercises(_ value: [UUID: [Problem]]) {
+        let dto = GeneratedExercisesDTO(from: value)
+        guard let data = try? JSONEncoder().encode(dto) else { return }
+        defaults.set(data, forKey: generatedExercisesKey)
+    }
+
+    static func clearGeneratedExercises() {
+        defaults.removeObject(forKey: generatedExercisesKey)
+    }
+
+    private struct GeneratedExercisesDTO: Codable {
+        var byLesson: [String: [Problem]]
+
+        init(from value: [UUID: [Problem]]) {
+            byLesson = Dictionary(uniqueKeysWithValues: value.map { ($0.key.uuidString, $0.value) })
+        }
+
+        func toDomain() -> [UUID: [Problem]] {
+            var result: [UUID: [Problem]] = [:]
+            for (key, list) in byLesson {
+                guard let id = UUID(uuidString: key) else { continue }
+                result[id] = list
+            }
+            return result
+        }
     }
 
     // MARK: - JSON DTO (UUID keys aren't JSON-native)

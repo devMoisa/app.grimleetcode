@@ -80,7 +80,7 @@ struct RoadmapSidebarView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: - Track header (title + overall progress)
+    // MARK: - Track header (title + overall progress + bulk generate)
 
     private func trackHeader(_ track: Track) -> some View {
         let completed = track.modules
@@ -89,8 +89,9 @@ struct RoadmapSidebarView: View {
             .count
         let total = track.lessonCount
         let ratio = total == 0 ? 0.0 : Double(completed) / Double(total)
+        let missing = track.allLessons.filter { $0.exercises.isEmpty }.count
 
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             Text(track.subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -104,8 +105,56 @@ struct RoadmapSidebarView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
+            if let bulk = state.bulkGenerationProgress {
+                bulkProgressBar(bulk)
+            } else if missing > 0 {
+                Button {
+                    Task { await state.generateAllRemainingExercises() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                        Text("Generate exercises for \(missing) lessons")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        LinearGradient(
+                            colors: [.pink.opacity(0.18), .purple.opacity(0.18), .cyan.opacity(0.18)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                    .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .help("Ask the AI to generate 3 exercises for every lesson that has none yet")
+            }
         }
         .padding(10)
+    }
+
+    private func bulkProgressBar(_ bulk: AppState.BulkProgress) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.tint)
+                Text("Generating \(bulk.done)/\(bulk.total) lessons…")
+                    .font(.caption.monospacedDigit())
+                Spacer()
+            }
+            ProgressView(value: Double(bulk.done), total: Double(max(bulk.total, 1)))
+                .progressViewStyle(.linear)
+                .tint(.purple)
+        }
+        .padding(8)
+        .background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Module list
